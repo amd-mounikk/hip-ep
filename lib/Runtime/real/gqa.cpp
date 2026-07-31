@@ -740,9 +740,9 @@ static bool gqa_flash_decode_enabled() {
   }();
   // The legacy flash_decode host launcher sizes the block as HPG * WAVE_SIZE
   // with WAVE_SIZE fixed to the wave32 host constant, while the device kernel's
-  // __launch_bounds__ and per-lane element mapping (EPT = D / WAVE_SIZE) resolve
-  // to the wave64 device constant on CDNA (MI350). The two disagree on wave64,
-  // so disable flash_decode there and let the dispatch fall back to the
+  // __launch_bounds__ and per-lane element mapping (EPT = D / WAVE_SIZE)
+  // resolve to the wave64 device constant on CDNA (MI350). The two disagree on
+  // wave64, so disable flash_decode there and let the dispatch fall back to the
   // wave-agnostic fused_decode kernel -- correct on both wave sizes.
   return env_enabled && !hipdnn_device_is_wave64();
 }
@@ -2041,16 +2041,17 @@ int wrap_group_query_attention(
   // decomposed pipeline (Step 8b); the lean fused path would silently drop it,
   // so exclude it here to route masked attention to gqa_forward_hipblaslt
   // below.
-  // The optimized fused path (gqa_forward_fused) drives hip_gqa_flash_prefill_v2
-  // / hip_gqa_flash_decode_v2, which are built on the RDNA-only WMMA intrinsics
-  // and trap on CDNA (wave64, e.g. MI350). Route wave64 to the decomposed
-  // hipBLASLt pipeline below (MFMA GEMMs + wave-portable scalar kernels), which
-  // is feature-complete and correct on both wave sizes. RDNA is unaffected.
-  const bool fused_supported = element_size_bytes == 2 && no_causal == 0 &&
-                               local_window_size <= 0 && head_sink == nullptr &&
-                               smooth_softmax != 1 && head_dim_ok &&
-                               decode_geometry_ok && attention_bias == nullptr &&
-                               !hipdnn_device_is_wave64();
+  // The optimized fused path (gqa_forward_fused) drives
+  // hip_gqa_flash_prefill_v2 / hip_gqa_flash_decode_v2, which are built on the
+  // RDNA-only WMMA intrinsics and trap on CDNA (wave64, e.g. MI350). Route
+  // wave64 to the decomposed hipBLASLt pipeline below (MFMA GEMMs +
+  // wave-portable scalar kernels), which is feature-complete and correct on
+  // both wave sizes. RDNA is unaffected.
+  const bool fused_supported =
+      element_size_bytes == 2 && no_causal == 0 && local_window_size <= 0 &&
+      head_sink == nullptr && smooth_softmax != 1 && head_dim_ok &&
+      decode_geometry_ok && attention_bias == nullptr &&
+      !hipdnn_device_is_wave64();
 
   // The quantized-cache kernels live exclusively on the fused path, which is
   // disabled above on wave64 because it is built on the RDNA-only WMMA
@@ -2059,10 +2060,11 @@ int wrap_group_query_attention(
   // would only report fused_supported=0, pointing a reader at the feature gates
   // (causal / window / sink / bias) instead of the real reason.
   if (kv_quantized && hipdnn_device_is_wave64()) {
-    fprintf(stderr,
-            "wrap_group_query_attention: quantized KV cache is not supported on "
-            "wave64 devices (CDNA, e.g. MI350) -- its kernels are on the WMMA "
-            "fused path, which is RDNA-only. Use an fp16 KV cache.\n");
+    fprintf(
+        stderr,
+        "wrap_group_query_attention: quantized KV cache is not supported on "
+        "wave64 devices (CDNA, e.g. MI350) -- its kernels are on the WMMA "
+        "fused path, which is RDNA-only. Use an fp16 KV cache.\n");
     return -1;
   }
 
